@@ -1,0 +1,11 @@
+# Secrets
+.env
+
+# Python
+.venv/
+__pycache__/
+*.py[oc]
+
+# Local documents and generated output
+docs/
+result.json
