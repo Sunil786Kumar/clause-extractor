@@ -86,7 +86,7 @@ def extract_clauses(pdf_path: str, client: Anthropic | None = None) -> Extractio
 
     response = client.messages.create(
         model=MODEL,
-        max_tokens=4000,
+        max_tokens=16000,
         system=SYSTEM,
         tools=[{
             "name": "save_clauses",
@@ -96,6 +96,13 @@ def extract_clauses(pdf_path: str, client: Anthropic | None = None) -> Extractio
         tool_choice={"type": "tool", "name": "save_clauses"},
         messages=[{"role": "user", "content": f"Contract:\n\n{document}"}],
     )
+
+    if response.stop_reason == "max_tokens":
+        raise RuntimeError(
+            f"Claude ran out of output tokens ({response.usage.output_tokens} used). "
+            "Raise max_tokens or split the document."
+        )
+
     tool_block = next(b for b in response.content if b.type == "tool_use")
     extraction = Extraction.model_validate(tool_block.input)
 
