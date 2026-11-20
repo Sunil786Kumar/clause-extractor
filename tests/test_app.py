@@ -99,3 +99,11 @@ def test_extract_deletes_temp_file_when_extraction_fails(use_client, contract_pd
     assert response.status_code == 502
     assert len(seen_paths) == 1
     assert not seen_paths[0].exists()
+
+
+def test_extract_rejects_renamed_text_file(use_client):
+    use_client(FakeClient())
+
+    response = upload(b"just some text", filename="contract.pdf", content_type="application/pdf")
+
+    assert response.status_code == 400
