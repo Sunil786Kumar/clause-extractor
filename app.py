@@ -5,8 +5,9 @@ import tempfile
 from pathlib import Path
 from typing import Annotated
 
-from anthropic import Anthropic
+from anthropic import Anthropic, APIError
 from fastapi import Depends, FastAPI, HTTPException, UploadFile
+from pydantic import ValidationError
 
 from extractor import ExtractionResult, extract_clauses
 
@@ -38,8 +39,13 @@ def extract(file: UploadFile, client: Annotated[Anthropic, Depends(get_client)])
         tmp.write(contents)
     try:
         result = extract_clauses(tmp.name, client=client)
+    # ValidationError subclasses ValueError, so it must be caught first. Its details stay out of the response.
+    except ValidationError:
+        raise HTTPException(status_code=502, detail="The AI service returned an invalid response.")
     except ValueError as e:
         raise HTTPException(status_code=422, detail=str(e))
+    except APIError:
+        raise HTTPException(status_code=502, detail="The AI service is unavailable. Please try again.")
     except RuntimeError as e:
         raise HTTPException(status_code=502, detail=str(e))
     finally:
