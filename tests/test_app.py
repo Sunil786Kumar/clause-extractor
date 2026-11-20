@@ -1,5 +1,7 @@
 from pathlib import Path
 
+import anthropic
+import httpx2
 import pytest
 from fastapi.testclient import TestClient
 
@@ -107,3 +109,28 @@ def test_extract_rejects_renamed_text_file(use_client):
     response = upload(b"just some text", filename="contract.pdf", content_type="application/pdf")
 
     assert response.status_code == 400
+
+
+def test_extract_maps_invalid_claude_response_to_502(use_client, contract_pdf):
+    use_client(FakeClient(tool_input={"clauses": [{"type": "payment"}]}))
+
+    response = upload(contract_pdf.read_bytes())
+
+    assert response.status_code == 502
+    assert response.json() == {"detail": "The AI service returned an invalid response."}
+
+
+REQUEST = httpx2.Request("POST", "https://api.anthropic.com/v1/messages")
+
+
+@pytest.mark.parametrize("error", [
+    anthropic.APIConnectionError(request=REQUEST),
+    anthropic.InternalServerError("Overloaded", response=httpx2.Response(529, request=REQUEST), body=None),
+], ids=["connection", "server"])
+def test_extract_maps_anthropic_api_error_to_502(use_client, contract_pdf, error):
+    use_client(FakeClient(error=error))
+
+    response = upload(contract_pdf.read_bytes())
+
+    assert response.status_code == 502
+    assert response.json() == {"detail": "The AI service is unavailable. Please try again."}
