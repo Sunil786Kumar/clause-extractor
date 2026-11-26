@@ -1,0 +1,17 @@
+# Secrets
+.env
+
+# Local environment and caches
+.venv/
+__pycache__/
+*.py[oc]
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+
+# Not needed at runtime
+.git/
+.github/
+docs/
+tests/
+result.json
