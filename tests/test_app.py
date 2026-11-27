@@ -20,17 +20,90 @@ def use_client():
     app.dependency_overrides.clear()
 
 
+API_KEY = "test-service-key"
+
+
+@pytest.fixture(autouse=True)
+def service_api_key(monkeypatch):
+    """Configure the service key for every test; tests about a missing key unset it."""
+    monkeypatch.setenv("SERVICE_API_KEY", API_KEY)
+
+
 http = TestClient(app)
 
 
-def upload(content: bytes, filename="contract.pdf", content_type="application/pdf"):
-    return http.post("/extract", files={"file": (filename, content, content_type)})
+def upload(content: bytes, filename="contract.pdf", content_type="application/pdf", headers=None):
+    if headers is None:
+        headers = {"X-API-Key": API_KEY}
+    return http.post("/extract", files={"file": (filename, content, content_type)}, headers=headers)
 
 
 def test_health():
     response = http.get("/health")
     assert response.status_code == 200
     assert response.json() == {"status": "ok"}
+
+
+def test_health_needs_no_key_even_when_service_key_unset(monkeypatch):
+    monkeypatch.delenv("SERVICE_API_KEY")
+
+    response = http.get("/health")
+
+    assert response.status_code == 200
+
+
+def test_extract_rejects_missing_key(use_client, contract_pdf):
+    client = FakeClient()
+    use_client(client)
+
+    response = upload(contract_pdf.read_bytes(), headers={})
+
+    assert response.status_code == 401
+    assert client.calls == []
+
+
+def test_extract_rejects_wrong_key(use_client, contract_pdf):
+    client = FakeClient()
+    use_client(client)
+
+    response = upload(contract_pdf.read_bytes(), headers={"X-API-Key": "wrong-key"})
+
+    assert response.status_code == 401
+    assert client.calls == []
+
+
+def test_extract_rejects_non_ascii_key_with_401(use_client, contract_pdf):
+    use_client(FakeClient())
+
+    response = upload(contract_pdf.read_bytes(), headers={"X-API-Key": "clé".encode()})
+
+    assert response.status_code == 401
+
+
+@pytest.mark.parametrize("configured", [None, ""], ids=["unset", "empty"])
+def test_extract_fails_closed_without_service_key(use_client, contract_pdf, monkeypatch, configured):
+    if configured is None:
+        monkeypatch.delenv("SERVICE_API_KEY")
+    else:
+        monkeypatch.setenv("SERVICE_API_KEY", configured)
+    client = FakeClient()
+    use_client(client)
+
+    # An empty header must not match an empty setting.
+    for headers in ({}, {"X-API-Key": ""}, {"X-API-Key": API_KEY}):
+        response = upload(contract_pdf.read_bytes(), headers=headers)
+        assert response.status_code == 503
+    assert client.calls == []
+
+
+def test_openapi_declares_api_key_on_extract_only():
+    schema = http.get("/openapi.json").json()
+
+    assert schema["components"]["securitySchemes"]["APIKeyHeader"] == {
+        "type": "apiKey", "in": "header", "name": "X-API-Key",
+    }
+    assert schema["paths"]["/extract"]["post"]["security"] == [{"APIKeyHeader": []}]
+    assert "security" not in schema["paths"]["/health"]["get"]
 
 
 def test_extract_returns_result(use_client, contract_pdf):
